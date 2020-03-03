@@ -1,0 +1,348 @@
+---
+title: "Упражнение 3"
+author: "Нестерова А.И."
+date: "28 02 2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Математическое моделирование
+
+### Параметрические классификаторы для бинарной зависимой переменной ($Y$)
+
+## Упражнение 3
+
+На наборе данных из своего варианта построить указанные модели для прогноза бинарной зависимой переменной. Доля обучающей выборки – 75%.    
+Построить три графика:   
+
+1. Матричный график взаимного разброса переменных модели (ggpairs).   
+
+2. Две ROC-кривые на одних осях: сравнение качества прогноза сравниваемых моделей на обучающей выборке.   
+
+3. Две ROC-кривые на одних осях: сравнение качества прогноза сравниваемых моделей на тестовой выборке.   
+
+В конце файла с кодом в комментарии сравнить модели по качеству с помощью ROC-кривых. Сделать предположение о том, что в данном случае повлияло на преимущество одного метода над другим.     
+
+### Вариант - 13
+
+<tr>
+<td>13</td>
+<td>678</td>
+<td>Glass{mlbench} -- химический состав разных типов стекла</td>
+<td>Type 2</br>(1 -- наличие признака, все остальные -- отсутствие)</td>
+<td>все остальные</td>
+<td>Логистическая регрессия, LDA</td>
+</tr>
+
+*Пакеты*:   
+```{r, message = F, warning = F}
+library('ISLR')
+library('GGally')
+library('MASS')
+library('mlbench') # данные Glass
+data(Glass)
+head(Glass)
+```
+
+Зададим ядро генератора случайных чисел и объём обучающей выборки.   
+
+```{r}
+my.seed <- 678        # ядро генерации
+train.percent <- 0.75 # доля обучающей выборки
+
+options("ggmatrix.progress.bar" = FALSE)
+```
+
+Исходные данные: набор Glass (химический состав разных типов стекла)
+
+```{r, fig.height = 7, fig.width = 7, message = F, warning = F}
+# графики разброса
+ggp <- ggpairs(Glass)
+print(ggp, progress = FALSE)
+```
+
+```{r}
+Type1 <- rep(0, length(Glass$Type)) # создание вектора Type1
+Glass <- cbind(Glass, Type1)        # присоединение Type1 к фрейму Glass
+
+# замена в переменной Type: если Type = 2 означает наличие признака (2), остальные - отсутствие(1)
+for(i in 1:length(Glass$Type)) {if (Glass$Type[i] == 2) {Glass$Type1[i] = 1}}
+
+# определение долей
+table(Glass$Type1) / sum(table(Glass$Type1))
+```
+
+Доля наименьшего класса, в данном случае 0.3551402, это ошибка нулевого классификатора: если бы мы прогнозировали Type = 2 для всех наблюдений, ровно в такой доле случаев мы бы ошиблись. Точность моделей целесообразно будет сравнивать с этой величиной.
+
+```{r}
+# Отбираем наблюдения в обучающую выборку --------------------------------------
+set.seed(my.seed)
+inTrain <- sample(seq_along(Glass$Type1),
+                  nrow(Glass)*train.percent)
+df <- Glass[inTrain, ]
+dfp <- Glass[-inTrain,]
+
+# фактические значения на обучающей выборке
+Fact <- df$Type1
+# фактические значения на тестовой выборке
+Factp <- dfp$Type1
+```
+
+# Строим модели, чтобы спрогнозировать Type 
+
+# Логистическая регрессия 
+```{r}
+# обучающая выборка
+model.logit <- glm(Type1 ~ RI + Na + Mg + Al + Si + K + Ca + Ba + Fe, 
+                   data = df, 
+                   family = 'binomial')
+summary(model.logit)
+
+# прогноз: вероятности принадлежности классу Type = 2
+p.logit <- predict(model.logit, df, 
+                  type = 'response')
+
+Forecast1 <- factor(ifelse(p.logit > 0.5, 2, 1),
+                  levels = c(1, 2),
+                  labels = c('0', '1'))
+
+# матрица неточностей
+conf.m <- table(Fact, Forecast1)
+conf.m
+
+# чувствительность
+conf.m[2, 2] / sum(conf.m[2, ])
+
+# специфичность
+conf.m[1, 1] / sum(conf.m[1, ])
+
+# верность
+sum(diag(conf.m)) / sum(conf.m)
+
+# Ошибка нулевого классификатора 
+sum(Glass$Type1 == 1) / length(Glass$Type1)
+```
+У этой модели низкая чувствительность.
+
+# LDA 
+
+```{r}
+model.lda <- lda(Type1 ~ RI + Na + Mg + Al + Si + K + Ca + Ba + Fe, 
+                 data = Glass[inTrain, ])
+model.lda
+
+# прогноз: вероятности принадлежности классу Type = 2
+p.lda <- predict(model.lda, df, 
+                 type = 'response')
+
+Forecast2 <- factor(ifelse(p.lda$posterior[, '1'] > 0.5, 2, 1),
+                          levels = c(1, 2),
+                          labels = c('0', '1'))
+
+# матрица неточностей
+conf.m <- table(Fact, Forecast2)
+conf.m
+
+# чувствительность
+conf.m[2, 2] / sum(conf.m[2, ])
+
+# специфичность
+conf.m[1, 1] / sum(conf.m[1, ])
+
+# верность
+sum(diag(conf.m)) / sum(conf.m)
+
+# Ошибка нулевого классификатора 
+sum(Glass$Type1 == 1) / length(Glass$Type1)
+```
+У этой модели чувствительность ещё меньше.
+
+# Подбор границы отсечения вероятностей классов 
+
+# ROC-кривые для обучающей выборки 
+
+```{r}
+# считаем 1-SPC и TPR для всех вариантов границы отсечения
+x1 <- NULL    # для (1 - SPC)
+y1 <- NULL    # для TPR
+
+# Логистическая регрессия
+# заготовка под матрицу неточностей
+tbl1 <- as.data.frame(matrix(rep(0, 4), 2, 2))
+rownames(tbl1) <- c('fact.0', 'fact.1')
+colnames(tbl1) <- c('predict.0', 'predict.1')
+
+# цикл по вероятностям отсечения
+for (p in seq(0, 1, length = 501)){
+    # прогноз
+    Forecast1 <- factor(ifelse(p.logit > p, 2, 1),
+                        levels = c(1, 2),
+                        labels = c('0', '1'))
+
+    # фрейм со сравнением факта и прогноза
+    df.compare <- data.frame(Fact = Fact, Forecast = Forecast1)
+
+    # заполняем матрицу неточностей
+    tbl1[1, 1] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '0', ])
+    tbl1[2, 2] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '1', ])
+    tbl1[1, 2] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '1', ])
+    tbl1[2, 1] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '0', ])
+
+    # считаем характеристики
+    TPR <- tbl1[2, 2] / sum(tbl1[2, ])
+    y1 <- c(y1, TPR)
+    SPC <- tbl1[1, 1] / sum(tbl1[1, ])
+    x1 <- c(x1, 1 - SPC)}
+    
+# LDA
+x2 <- NULL    # для (1 - SPC)
+y2 <- NULL    # для TPR
+
+# заготовка под матрицу неточностей
+tbl2 <- as.data.frame(matrix(rep(0, 4), 2, 2))
+rownames(tbl2) <- c('fact.0', 'fact.1')
+colnames(tbl2) <- c('predict.0', 'predict.1')
+
+# цикл по вероятностям отсечения
+for (p in seq(0, 1, length = 501)){
+  # прогноз
+  Forecast2 <- factor(ifelse(p.lda$posterior[, '1'] > p, 2, 1),
+                      levels = c(1, 2),
+                      labels = c('0', '1'))
+  
+  # фрейм со сравнением факта и прогноза
+  df.compare <- data.frame(Fact = Fact, Forecast = Forecast2)
+  
+  # заполняем матрицу неточностей
+  tbl2[1, 1] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '0', ])
+  tbl2[2, 2] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '1', ])
+  tbl2[1, 2] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '1', ])
+  tbl2[2, 1] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '0', ])
+  
+  # считаем характеристики
+  TPR <- tbl2[2, 2] / sum(tbl2[2, ])
+  y2 <- c(y2, TPR)
+  SPC <- tbl2[1, 1] / sum(tbl2[1, ])
+  x2 <- c(x2, 1 - SPC)
+}
+
+# строим ROC-кривую
+par(mar = c(5, 5, 1, 1))
+
+# кривая (логистическая регрессия)
+plot(x1, y1, type = 'l', col = 'blue', lwd = 3,
+     xlab = '(1 - SPC)', ylab = 'TPR', 
+     xlim = c(0, 1), ylim = c(0, 1), main = 'Обучающая выборка')
+
+# кривая (LDA)
+lines(x2, y2, type = 'l', col = 'red', lwd = 3)
+
+# прямая случайного классификатора
+abline(a = 0, b = 1, lty = 3, lwd = 2)
+
+# легенда
+legend('bottomright', names <-  c('Логист. кривая', 'LDA'), lty = 1, col = c('blue', 'red'))
+```
+
+Сравнивая ROC-кривые, полученные на обучающей выборке, сложно сказать, какая из моделей наиболее предпочтительна. Для того, чтобы ответить на этот вопрос построим ROC-кривые на тестовых данных.
+
+# ROC-кривые для тестовой выборки 
+
+```{r}
+# логистическая модель
+# прогноз: вероятности принадлежности классу Type = 2
+p.logit <- predict(model.logit, dfp, 
+                  type = 'response')
+
+# считаем 1-SPC и TPR для всех вариантов границы отсечения
+x1 <- NULL    # для (1 - SPC)
+y1 <- NULL    # для TPR
+
+# заготовка под матрицу неточностей
+tbl1 <- as.data.frame(matrix(rep(0, 4), 2, 2))
+rownames(tbl1) <- c('fact.0', 'fact.1')
+colnames(tbl1) <- c('predict.0', 'predict.1')
+
+# цикл по вероятностям отсечения
+for (p in seq(0, 1, length = 501)){
+    # прогноз
+    Forecast1 <- factor(ifelse(p.logit > p, 2, 1),
+                        levels = c(1, 2),
+                        labels = c('0', '1'))
+
+    # фрейм со сравнением факта и прогноза
+    df.compare <- data.frame(Fact = Factp, Forecast = Forecast1)
+
+    # заполняем матрицу неточностей
+    tbl1[1, 1] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '0', ])
+    tbl1[2, 2] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '1', ])
+    tbl1[1, 2] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '1', ])
+    tbl1[2, 1] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '0', ])
+
+    # считаем характеристики
+    TPR <- tbl1[2, 2] / sum(tbl1[2, ])
+    y1 <- c(y1, TPR)
+    SPC <- tbl1[1, 1] / sum(tbl1[1, ])
+    x1 <- c(x1, 1 - SPC)}
+
+# LDA
+# прогноз: вероятности принадлежности классу Type = 2
+p.lda <- predict(model.lda, dfp, 
+                 type = 'response')
+
+x2 <- NULL    # для (1 - SPC)
+y2 <- NULL    # для TPR
+
+# заготовка под матрицу неточностей
+tbl2 <- as.data.frame(matrix(rep(0, 4), 2, 2))
+rownames(tbl2) <- c('fact.0', 'fact.1')
+colnames(tbl2) <- c('predict.0', 'predict.1')
+
+# цикл по вероятностям отсечения
+for (p in seq(0, 1, length = 501)){
+  # прогноз
+  Forecast2 <- factor(ifelse(p.lda$posterior[, '1'] > p, 2, 1),
+                      levels = c(1, 2),
+                      labels = c('0', '1'))
+  
+  # фрейм со сравнением факта и прогноза
+  df.compare <- data.frame(Fact = Factp, Forecast = Forecast2)
+  
+  # заполняем матрицу неточностей
+  tbl2[1, 1] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '0', ])
+  tbl2[2, 2] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '1', ])
+  tbl2[1, 2] <- nrow(df.compare[df.compare$Fact == '0' & df.compare$Forecast == '1', ])
+  tbl2[2, 1] <- nrow(df.compare[df.compare$Fact == '1' & df.compare$Forecast == '0', ])
+  
+  # считаем характеристики
+  TPR <- tbl2[2, 2] / sum(tbl2[2, ])
+  y2 <- c(y2, TPR)
+  SPC <- tbl2[1, 1] / sum(tbl2[1, ])
+  x2 <- c(x2, 1 - SPC)
+  
+}
+
+# строим ROC-кривую
+par(mar = c(5, 5, 1, 1))
+
+# кривая (логистическая регрессия)
+plot(x1, y1, type = 'l', col = 'blue', lwd = 3,
+     xlab = '(1 - SPC)', ylab = 'TPR', 
+     xlim = c(0, 1), ylim = c(0, 1), main = 'Тестовая выборка')
+
+# кривая (LDA)
+lines(x2, y2, type = 'l', col = 'red', lwd = 3)
+
+# прямая случайного классификатора
+abline(a = 0, b = 1, lty = 3, lwd = 2)
+
+# легенда
+legend('bottomright', names <-  c('Логист. кривая', 'LDA'), lty = 1, col = c('blue', 'red'))
+```
+
+Сравнивая ROC-кривые, полученные на тестовой выборке, видно, что логистическая модель обладает большей предсказательной способностью, чем LDA-модель. 
+
+Логистическая регрессия не имеет столько допущений, как дискриминантный анализ. Поэтому если допущения дискриминантного анализа не выполняются, то логистическая регрессия является лучшем средством для анализа. 
